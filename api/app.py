@@ -1,16 +1,17 @@
-from flask import Flask, jsonify, request
+import jwt
+import bcrypt
+
+from flask      import Flask, request, jsonify, current_app, Response, g
 from flask.json import JSONEncoder
 from sqlalchemy import create_engine, text
-from datetime import datetime, timedelta
-import bcrypt
-import jwt
+from datetime   import datetime, timedelta
+from functools  import wraps
 
 class CustomJSONEncoder(JSONEncoder):
     def default(self, obj):
         if isinstance(obj, set):
             return list(obj)
         return JSONEncoder.default(self, obj)
-
 
 def create_app(test_config=None):
     app = Flask(__name__)
@@ -65,8 +66,10 @@ def create_app(test_config=None):
         return jsonify(created_user);
 
     @app.route("/tweet", methods=['POST'])
+    @login_required
     def tweet():
         user_tweet = request.json
+        user_tweet['user_id'] = g.user_id
         tweet = user_tweet["tweet"]
         if len(tweet) > 300:
             return '300자 초과', 400
@@ -96,16 +99,16 @@ def create_app(test_config=None):
         if row and bcrypt.checkpw(password.encode('UTF-8'), row['hashed_password'].encode('UTF-8')):
             user_id = row['id'];
             payload = {
-                'user_id' : user_id,
-                'exp' : datetime.utcnow() + timedelta(seconds = 60 * 60* 24)
+                'user_id': user_id,
+                'exp': datetime.utcnow() + timedelta(seconds=60 * 60 * 24)
             }
-            token = jwt.encode(payload, 'JWT_SECRET_KEY',
+            token = jwt.encode(payload, app.config['JWT_SECRET_KEY'],
                                'HS256')
             return jsonify({
-                'access_token' : token.decode('UTF-8')
+                'access_token': token.decode('UTF-8')
             })
         else:
-            return '' ,401
+            return '', 401
 
     @app.route("/timeline/<int:user_id>", methods=['GET'])
     def timeline(user_id):
@@ -142,9 +145,11 @@ def create_app(test_config=None):
             'name': user['name']
         } for user in userlist]
         return jsonify({
-            'usernames' : usernames
+            'usernames': usernames
         })
+
     @app.route("/follow", methods=['POST'])
+    @login_required
     def follow():
         new_follow = request.json;
         app.database.execute(text("""
@@ -165,13 +170,14 @@ def create_app(test_config=None):
                 """), new_follow).fetchone()
 
         following = {
-            'id' : row['user_id'],
-            'following' : row['follow_user_id']
+            'id': row['user_id'],
+            'following': row['follow_user_id']
         } if row else None
 
         return jsonify(following);
 
     @app.route("/unfollow", methods=['POST'])
+    @login_required
     def unfollow():
         new_unfollow = request.json;
         app.database.execute(text("""
@@ -190,11 +196,38 @@ def create_app(test_config=None):
             'following': row['follow_user_id']
         } for row in rows]
         return jsonify(following);
+
     return app
 
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        access_token = request.headers.get('Authorization')
+        if access_token is not None:
+            try:
+                payload = jwt.decode(access_token, current_app.config['JWT_SECRET_KEY'], 'HS256')
+            except jwt.InvalidTokenError:
+                payload = None
+            if payload is None: return Response(status=401)
 
+            user_id = payload['user_id']
+            g.user_id = user_id
+            g.user = get_user_info(user_id) if user_id else None
+        else:
+            return Response(status=401)
+        return f(*args, **kwargs)
+    return decorated_function
 
-
-
-
-
+def get_user_info(user_id):
+    user = current_app.database.execute(text("""
+           select
+               id, name, email, profile
+           from users
+           where id = :user_id
+           """), {'user_id': user_id}).fetchone()
+    return {
+        'id' : user['id'],
+        'name': user['name'],
+        'email': user['email'],
+        'profile': user['profile'],
+    } if user else None
