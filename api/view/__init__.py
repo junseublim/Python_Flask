@@ -11,6 +11,7 @@ class CustomJSONEncoder(JSONEncoder):
 
 #decorator
 def login_required(f):
+    #wraps함수를 적용하면 decorator 함수를 만들기 쉽다.
     @wraps(f)
     def decorated_function(*args, **kwargs):
         access_token = request.headers.get('Authorization')

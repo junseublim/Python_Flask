@@ -7,6 +7,7 @@ class UserService:
         self.user_dao = user_dao
 
     def create_new_user(self, new_user):
+        #bcrypt의 hashpw를 이요해 해시화
         new_user['password'] = bcrypt.hashpw(new_user['password'].encode('UTF-8'), bcrypt.gensalt())
         new_user_id = self.user_dao.insert_user(new_user)
         return new_user_id
@@ -23,6 +24,7 @@ class UserService:
             'user_id': user_id,
             'exp' : datetime.utcnow() + timedelta(seconds= 60 * 60 * 24)
         }
+        #jwt로 access token 생성. payload = 인코딩할 데이터, 두번째 인자: 비밀키, 세번째 인자: 암호화 알고리즘
         token = jwt.encode(payload, self.config['JWT_SECRET_KEY'], 'HS256')
         return token.decode('UTF-8')
 

@@ -1,3 +1,4 @@
+#데이터베이스 접속 정보
 db = {
     'user' : 'root',
     'password' : 'password',
